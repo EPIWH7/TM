@@ -1,0 +1,1830 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Планирование дня | Метод Глеба Архангельского</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Интер шрифт -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Библиотеки для экспорта -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        /* === ШРИФТЫ И БАЗА === */
+        * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+
+        /* === СТИЛИ ИНТЕРФЕЙСА (ДЛЯ ЭКРАНА) === */
+        .time-slot:hover { background-color: #f0f9f0 !important; }
+        .meeting-block {
+            position: absolute; left: 70px; right: 5px; z-index: 10;
+            border-radius: 3px; padding: 3px 5px; overflow: hidden;
+            white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+            font-size: 12px;
+        }
+        .meeting-block:hover { z-index: 20; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .meeting-completed { background-color: #d1fae5 !important; text-decoration: line-through; opacity: 0.8; }
+        .completed-task { text-decoration: line-through; color: #9ca3af !important; }
+        .draggable { cursor: move; }
+        .timeline-container { position: relative; height: 840px; }
+        .hour-slot { height: 60px; border-bottom: 1px solid #e5e7eb; position: relative; }
+        .progress-bar { height: 8px; border-radius: 4px; overflow: hidden; background-color: #e5e7eb; }
+        .progress-fill { height: 100%; background-color: #10b981; transition: width 0.3s ease; }
+
+        /* === СТИЛИ ДЛЯ PDF (СТРОГАЯ ИЗОЛЯЦИЯ) === */
+        #printContainer {
+            /* ЖЕСТКАЯ ФИКСАЦИЯ РАЗМЕРОВ */
+            width: 700px !important;  /* Чуть меньше А4 (794px), чтобы были поля */
+            margin: 0 auto !important; /* Центрируем */
+            padding: 20px !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            position: absolute;
+            top: 0;
+            left: -9999px; /* Скрыто по умолчанию */
+            z-index: 9999;
+        }
+
+        /* СБРОС ВСЕХ СТИЛЕЙ ВНУТРИ PDF */
+        #printContainer * {
+            max-width: 100% !important;     /* Не вылезать за родителя */
+            white-space: pre-wrap !important; /* Сохранять переносы строк + переносить длинное */
+            word-wrap: break-word !important; /* Переносить длинные слова */
+            overflow-wrap: break-word !important;
+            font-size: 11px !important;     /* Мелкий аккуратный шрифт */
+            line-height: 1.4 !important;
+            color: #000 !important;
+        }
+
+        /* ЗАГОЛОВКИ */
+        #printContainer h1 { font-size: 18px !important; font-weight: bold; text-align: center; margin-bottom: 10px; }
+        #printContainer .date { text-align: center; margin-bottom: 20px; font-size: 14px !important; }
+        #printContainer .section-title { 
+            font-size: 14px !important; font-weight: bold; 
+            border-bottom: 2px solid #000; margin-bottom: 10px; margin-top: 15px;
+            padding-bottom: 5px; text-transform: uppercase;
+        }
+
+        /* СЕТКИ (Grid заменяем на Flex для надежности в PDF) */
+        #printContainer .strategy-grid { display: flex !important; gap: 10px; }
+        #printContainer .strategy-block { 
+            flex: 1; 
+            border: 1px solid #000; 
+            padding: 10px; 
+            min-height: 100px;
+        }
+        
+        #printContainer .timeline-grid { display: flex !important; gap: 15px; }
+        #printContainer .timeline-col { 
+            flex: 1; 
+            border: 1px solid #000; 
+            padding: 10px; 
+            min-height: 300px; 
+        }
+
+        /* ЭЛЕМЕНТЫ СПИСКОВ */
+        #printContainer .meeting-item, 
+        #printContainer .task-item {
+            border-bottom: 1px dotted #ccc;
+            padding: 4px 0;
+            display: block !important; /* Блочный элемент */
+        }
+        #printContainer .meeting-time { font-weight: bold; margin-right: 5px; display: inline-block; }
+
+        #printContainer .notes-block { border: 1px solid #000; padding: 10px; min-height: 80px; }
+        #printContainer .progress-text { text-align: center; margin-top: 10px; font-style: italic; }
+
+        /* СКРЫТИЕ ЛИШНЕГО ПРИ ОБЫЧНОЙ ПЕЧАТИ */
+        @media print {
+            body * { visibility: hidden; }
+            #printContainer, #printContainer * { visibility: visible; }
+            #printContainer { position: absolute; left: 0; top: 0; width: 100%; margin: 0; }
+        }
+        #printContainer * {
+           
+            page-break-inside: avoid !important;
+            page-break-after: always !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            orphans: 3 !important;
+            widows: 3 !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+            page-break-before: always !important;
+        }
+
+        /* Стили для предотвращения растягивания */
+        #printContainer .strategy-grid,
+        #printContainer .timeline-grid {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            width: 100% !important;
+            gap: 10px !important;
+        }
+
+        #printContainer .strategy-block,
+        #printContainer .timeline-col {
+            flex: 0 0 calc(33.333% - 7px) !important; /* Для стратегии - 3 колонки */
+            max-width: calc(33.333% - 7px) !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+        }
+
+        /* Для таймлайна - 2 колонки */
+        #printContainer .timeline-col {
+            flex: 0 0 calc(50% - 7.5px) !important;
+            max-width: calc(50% - 7.5px) !important;
+        }
+
+        /* Принудительный перенос текста */
+        #printContainer .meeting-item,
+        #printContainer .task-item,
+        #printContainer .strategy-content,
+        #printContainer .notes-content {
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            word-break: break-word !important;
+            overflow-wrap: break-word !important;
+            max-width: 100% !important;
+        }
+
+        /* Ограничиваем ширину текста внутри блоков */
+        #printContainer .strategy-content,
+        #printContainer .notes-content {
+            max-width: 100% !important;
+            width: 100% !important;
+        }
+        /* Фикс для отображения при экспорте */
+        @media print {
+            #printContainer {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 700px !important;
+                margin: 0 auto !important;
+                padding: 20px !important;
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+                z-index: 9999 !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen p-4">
+    <!-- Контейнер приложения для экрана -->
+    <div class="max-w-6xl mx-auto">
+        <!-- Хедер (только для экрана) -->
+        <header class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-gray-200 no-print">
+            <div class="flex flex-col md:flex-row md:items-center justify-between mb-6">
+                <h1 class="text-2xl md:text-3xl font-bold text-gray-800 mb-4 md:mb-0">
+                    Планирование дня | Метод Глеба Архангельского
+                </h1>
+                
+                <div class="flex items-center space-x-4">
+                    <!-- Навигация по датам -->
+                    <div class="flex items-center bg-gray-100 rounded-lg p-2">
+                        <button id="prevDay" class="p-2 text-gray-600 hover:text-green-600 hover:bg-gray-200 rounded">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                            </svg>
+                        </button>
+                        
+                        <input id="datePicker" type="date" class="bg-transparent px-3 py-2 text-gray-700 font-medium mx-2">
+                        
+                        <button id="nextDay" class="p-2 text-gray-600 hover:text-green-600 hover:bg-gray-200 rounded">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <!-- Текущая дата -->
+                    <div class="text-lg font-semibold text-green-700" id="currentDate"></div>
+                </div>
+            </div>
+            
+            <!-- Панель действий -->
+            <div class="flex flex-wrap gap-3">
+                <button id="saveBtn" class="px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+                    </svg>
+                    Сохранить
+                </button>
+                
+                <button id="docxBtn" class="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    DOCX
+                </button>
+                
+                <button id="clearBtn" class="px-4 py-2 bg-yellow-500 text-white font-medium rounded-lg hover:bg-yellow-600 transition flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    Очистить
+                </button>
+                
+                <button id="archiveBtn" class="px-4 py-2 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                    </svg>
+                    Архив
+                </button>
+            </div>
+            
+            <!-- Прогресс выполнения -->
+            <div class="mt-4 p-3 bg-gray-100 rounded-lg">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="font-medium text-gray-700">Прогресс выполнения:</span>
+                    <span id="progressPercent" class="font-bold text-green-700">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <div class="text-sm text-gray-600 mt-1" id="progressText">Выполнено 0 из 0 задач</div>
+            </div>
+        </header>
+
+        <!-- Основное содержимое для экрана -->
+        <main class="no-print">
+            <!-- Блок "Стратегия дня" -->
+            <section class="mb-6">
+                <h2 class="text-xl font-bold text-gray-700 mb-3">СТРАТЕГИЯ ДНЯ</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- Дело дня -->
+                    <div class="bg-white p-4 rounded-xl border-2 border-green-200 shadow-sm">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center">
+                                <div class="text-2xl mr-3">🎯</div>
+                                <h3 class="text-lg font-semibold text-gray-800">Дело дня</h3>
+                            </div>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <span class="text-sm text-gray-600">Выполнено</span>
+                                <input type="checkbox" id="mainTaskCompleted" class="h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500">
+                            </label>
+                        </div>
+                        <textarea 
+                            id="mainTask" 
+                            class="w-full h-24 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none" 
+                            placeholder="Важнейшая задача на сегодня..."></textarea>
+                    </div>
+                    
+                    <!-- Лягушка -->
+                    <div class="bg-white p-4 rounded-xl border-2 border-green-200 shadow-sm">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center">
+                                <div class="text-2xl mr-3">🐸</div>
+                                <h3 class="text-lg font-semibold text-gray-800">Лягушка</h3>
+                            </div>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <span class="text-sm text-gray-600">Выполнено</span>
+                                <input type="checkbox" id="frogTaskCompleted" class="h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500">
+                            </label>
+                        </div>
+                        <textarea 
+                            id="frogTask" 
+                            class="w-full h-24 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none" 
+                            placeholder="Неприятное, но необходимое дело..."></textarea>
+                    </div>
+                    
+                    <!-- Слон -->
+                    <div class="bg-white p-4 rounded-xl border-2 border-green-200 shadow-sm">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center">
+                                <div class="text-2xl mr-3">🐘</div>
+                                <h3 class="text-lg font-semibold text-gray-800">Слон</h3>
+                            </div>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <span class="text-sm text-gray-600">Выполнено</span>
+                                <input type="checkbox" id="elephantTaskCompleted" class="h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500">
+                            </label>
+                        </div>
+                        <textarea 
+                            id="elephantTask" 
+                            class="w-full h-24 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none" 
+                            placeholder="Часть большого проекта..."></textarea>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Основной таймлайн в две колонки -->
+            <section class="mb-6">
+                <h2 class="text-xl font-bold text-gray-700 mb-3">ТАЙМЛАЙН ДНЯ</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Колонка 1: Жесткие встречи -->
+                    <div class="bg-white rounded-xl border border-gray-300 shadow-sm overflow-hidden">
+                        <div class="bg-green-50 p-3 border-b border-gray-300">
+                            <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                ЖЕСТКИЕ ВСТРЕЧИ (07:00 - 21:00)
+                            </h3>
+                        </div>
+                        
+                        <div class="p-3">
+                            <!-- Кнопка добавления встречи -->
+                            <button id="addMeetingBtn" class="mb-3 px-3 py-2 bg-green-100 text-green-700 font-medium rounded-lg hover:bg-green-200 transition flex items-center">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                Добавить встречу
+                            </button>
+                            
+                            <!-- Контейнер для таймлайна -->
+                            <div class="timeline-container border border-gray-200 rounded-lg relative">
+                                <!-- Сетка времени -->
+                                <div id="timeGrid" class="relative">
+                                    <!-- Часовые слоты будут добавлены через JS -->
+                                </div>
+                                
+                                <!-- Контейнер для встреч -->
+                                <div id="meetingsContainer" class="absolute top-0 left-0 right-0 h-full">
+                                    <!-- Встречи будут добавляться динамически -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Колонка 2: Гибкие задачи -->
+                    <div class="bg-white rounded-xl border border-gray-300 shadow-sm overflow-hidden">
+                        <div class="bg-green-50 p-3 border-b border-gray-300">
+                            <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                                <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                                </svg>
+                                ГИБКИЕ ЗАДАЧИ
+                            </h3>
+                        </div>
+                        
+                        <div class="p-3">
+                            <!-- Форма добавления задачи -->
+                            <div class="flex mb-3">
+                                <input 
+                                    id="newTaskInput" 
+                                    type="text" 
+                                    class="flex-grow p-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" 
+                                    placeholder="Новая задача...">
+                                <button id="addTaskBtn" class="px-4 bg-green-600 text-white font-medium rounded-r-lg hover:bg-green-700 transition">
+                                    Добавить
+                                </button>
+                            </div>
+                            
+                            <!-- Список задач -->
+                            <div id="tasksContainer" class="space-y-2 max-h-[600px] overflow-y-auto">
+                                <!-- Задачи будут добавляться динамически -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Футер: Заметки / Итоги дня -->
+            <section class="mb-6">
+                <div class="bg-white rounded-xl border border-gray-300 shadow-sm overflow-hidden">
+                    <div class="bg-green-50 p-3 border-b border-gray-300">
+                        <h3 class="text-lg font-bold text-gray-800 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                            </svg>
+                            ЗАМЕТКИ / ИТОГИ ДНЯ
+                        </h3>
+                    </div>
+                    
+                    <div class="p-3">
+                        <textarea 
+                            id="notes" 
+                            class="w-full h-32 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none" 
+                            placeholder="Заметки, мысли, итоги дня..."></textarea>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Контейнер для печати/PDF (скрыт на экране) -->
+    <div id="printContainer" class="print-container print-only" style="position: absolute; left: -9999px; top: -9999px;">
+        <!-- Заголовок для печати -->
+        <div class="date-header">
+            <h1>Планирование дня | Метод Глеба Архангельского</h1>
+            <div class="date" id="printDate"></div>
+        </div>
+        
+        <!-- Стратегия дня для печати -->
+        <div class="strategy-section">
+            <div class="section-title">СТРАТЕГИЯ ДНЯ</div>
+            <div class="strategy-grid">
+                <!-- Дело дня -->
+                <div class="strategy-block">
+                    <div class="strategy-block-title">
+                        <span>🎯 ДЕЛО ДНЯ</span>
+                        <span id="printMainTaskStatus">[ ]</span>
+                    </div>
+                    <div class="strategy-content" id="printMainTask"></div>
+                </div>
+                
+                <!-- Лягушка -->
+                <div class="strategy-block">
+                    <div class="strategy-block-title">
+                        <span>🐸 ЛЯГУШКА</span>
+                        <span id="printFrogTaskStatus">[ ]</span>
+                    </div>
+                    <div class="strategy-content" id="printFrogTask"></div>
+                </div>
+                
+                <!-- Слон -->
+                <div class="strategy-block">
+                    <div class="strategy-block-title">
+                        <span>🐘 СЛОН</span>
+                        <span id="printElephantTaskStatus">[ ]</span>
+                    </div>
+                    <div class="strategy-content" id="printElephantTask"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Таймлайн для печати -->
+        <div class="timeline-section">
+            <div class="section-title">ТАЙМЛАЙН ДНЯ</div>
+            <div class="timeline-grid">
+                <!-- Жесткие встречи -->
+                <div class="timeline-col">
+                    <div class="section-title" style="font-size: 11px !important; margin-bottom: 2mm !important;">ЖЕСТКИЕ ВСТРЕЧИ (07:00-21:00)</div>
+                    <div id="printMeetingsList" class="meeting-list">
+                        <!-- Список встреч будет заполнен через JS -->
+                    </div>
+                </div>
+                
+                <!-- Гибкие задачи -->
+                <div class="timeline-col">
+                    <div class="section-title" style="font-size: 11px !important; margin-bottom: 2mm !important;">ГИБКИЕ ЗАДАЧИ</div>
+                    <div id="printTasksList" class="tasks-list">
+                        <!-- Список задач будет заполнен через JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Заметки для печати -->
+        <div class="notes-section">
+            <div class="section-title">ЗАМЕТКИ / ИТОГИ ДНЯ</div>
+            <div class="notes-block">
+                <div class="notes-content" id="printNotes"></div>
+            </div>
+        </div>
+        
+        <!-- Прогресс выполнения для печати -->
+        <div class="progress-section">
+            <div class="progress-text" id="printProgressText">Выполнено 0 из 0 задач (0%)</div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для добавления встречи -->
+    <div id="meetingModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 hidden no-print">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">Новая встреча</h3>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-700 mb-2">Название встречи</label>
+                        <input id="meetingTitle" type="text" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" placeholder="Встреча с...">
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-gray-700 mb-2">Начало</label>
+                            <div class="flex space-x-2">
+                                <select id="meetingStartHour" class="w-1/2 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                                    <!-- Часы с 7 до 21 -->
+                                </select>
+                                <select id="meetingStartMinute" class="w-1/2 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                                    <option value="0">00</option>
+                                    <option value="15">15</option>
+                                    <option value="30">30</option>
+                                    <option value="45">45</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-gray-700 mb-2">Окончание</label>
+                            <div class="flex space-x-2">
+                                <select id="meetingEndHour" class="w-1/2 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                                    <!-- Часы с 7 до 22 -->
+                                </select>
+                                <select id="meetingEndMinute" class="w-1/2 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                                    <option value="0">00</option>
+                                    <option value="15">15</option>
+                                    <option value="30">30</option>
+                                    <option value="45">45</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="text-sm text-gray-600" id="durationDisplay">
+                        Длительность: 1 час 0 минут
+                    </div>
+                    
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button id="cancelMeetingBtn" class="px-4 py-2 text-gray-700 bg-gray-100 font-medium rounded-lg hover:bg-gray-200 transition">
+                            Отмена
+                        </button>
+                        <button id="saveMeetingBtn" class="px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition">
+                            Сохранить
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Архив дней -->
+    <div id="archiveModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 hidden no-print">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-hidden">
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">Архив дней</h3>
+                
+                <div class="mb-4">
+                    <input id="archiveSearch" type="text" class="w-full p-3 border border-gray-300 rounded-lg" placeholder="Поиск по дате...">
+                </div>
+                
+                <div id="archiveList" class="overflow-y-auto max-h-[50vh]">
+                    <!-- Список архивных дней будет загружаться динамически -->
+                </div>
+                
+                <div class="flex justify-end mt-6">
+                    <button id="closeArchiveBtn" class="px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition">
+                        Закрыть
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+        // Глобальные переменные
+        let currentDate = new Date();
+        let meetings = [];
+        let tasks = [];
+        let draggingTask = null;
+        
+        // Состояние выполнения для стратегических задач
+        let strategyTasks = {
+            mainTask: { completed: false },
+            frogTask: { completed: false },
+            elephantTask: { completed: false }
+        };
+
+        // Инициализация приложения
+        document.addEventListener('DOMContentLoaded', function() {
+            // Инициализация даты
+            initDate();
+            
+            // Инициализация временных слотов
+            initTimeGrid();
+            
+            // Инициализация выпадающих списков времени
+            initTimeSelects();
+            
+            // Загрузка данных из LocalStorage
+            loadDayData();
+            
+            // Инициализация слушателей событий
+            initEventListeners();
+            
+            // Инициализация расчета длительности встречи
+            initDurationCalculator();
+            
+            // Расчет прогресса
+            calculateProgress();
+        });
+
+        // Инициализация даты
+        function initDate() {
+            const datePicker = document.getElementById('datePicker');
+            const currentDateElement = document.getElementById('currentDate');
+            const printDateElement = document.getElementById('printDate');
+            
+            // Форматирование даты для отображения
+            const formatDate = (date) => {
+                const day = String(date.getDate()).padStart(2, '0');
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const year = date.getFullYear();
+                const weekdays = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+                const weekday = weekdays[date.getDay()];
+                
+                return `${weekday}, ${day}.${month}.${year}`;
+            };
+            
+            // Установка текущей даты
+            const updateDate = () => {
+                datePicker.valueAsDate = currentDate;
+                const formattedDate = formatDate(currentDate);
+                currentDateElement.textContent = formattedDate;
+                printDateElement.textContent = formattedDate;
+            };
+            
+            updateDate();
+            
+            // Обработчики для навигации по датам
+            document.getElementById('prevDay').addEventListener('click', () => {
+                currentDate.setDate(currentDate.getDate() - 1);
+                updateDate();
+                loadDayData();
+            });
+            
+            document.getElementById('nextDay').addEventListener('click', () => {
+                currentDate.setDate(currentDate.getDate() + 1);
+                updateDate();
+                loadDayData();
+            });
+            
+            datePicker.addEventListener('change', (e) => {
+                currentDate = new Date(e.target.value);
+                updateDate();
+                loadDayData();
+            });
+        }
+
+        // Инициализация сетки времени
+        function initTimeGrid() {
+            const timeGrid = document.getElementById('timeGrid');
+            timeGrid.innerHTML = '';
+            
+            // Создание часовых слотов с 7:00 до 21:00
+            for (let hour = 7; hour <= 21; hour++) {
+                const timeSlot = document.createElement('div');
+                timeSlot.className = 'hour-slot flex items-start border-b border-gray-200 time-slot';
+                
+                // Время
+                const timeLabel = document.createElement('div');
+                timeLabel.className = 'w-16 text-center pt-2 text-sm font-medium text-gray-600 bg-gray-50';
+                timeLabel.textContent = `${hour.toString().padStart(2, '0')}:00`;
+                
+                timeSlot.appendChild(timeLabel);
+                timeGrid.appendChild(timeSlot);
+            }
+        }
+
+        // Инициализация выпадающих списков времени
+        function initTimeSelects() {
+            const startHourSelect = document.getElementById('meetingStartHour');
+            const endHourSelect = document.getElementById('meetingEndHour');
+            
+            // Очистка существующих опций
+            startHourSelect.innerHTML = '';
+            endHourSelect.innerHTML = '';
+            
+            // Добавление часов с 7:00 до 21:00 для начала
+            for (let hour = 7; hour <= 21; hour++) {
+                const timeString = `${hour.toString().padStart(2, '0')}:00`;
+                const option = document.createElement('option');
+                option.value = hour;
+                option.textContent = timeString;
+                startHourSelect.appendChild(option);
+            }
+            
+            // Добавление часов с 7:00 до 22:00 для окончания
+            for (let hour = 7; hour <= 22; hour++) {
+                const timeString = `${hour.toString().padStart(2, '0')}:00`;
+                const option = document.createElement('option');
+                option.value = hour;
+                option.textContent = timeString;
+                endHourSelect.appendChild(option);
+            }
+            
+            // Установка значений по умолчанию
+            startHourSelect.value = 9;
+            document.getElementById('meetingStartMinute').value = 0;
+            endHourSelect.value = 10;
+            document.getElementById('meetingEndMinute').value = 0;
+        }
+
+        // Инициализация расчета длительности
+        function initDurationCalculator() {
+            const updateDuration = () => {
+                const startHour = parseInt(document.getElementById('meetingStartHour').value);
+                const startMinute = parseInt(document.getElementById('meetingStartMinute').value);
+                const endHour = parseInt(document.getElementById('meetingEndHour').value);
+                const endMinute = parseInt(document.getElementById('meetingEndMinute').value);
+                
+                const startTotalMinutes = startHour * 60 + startMinute;
+                const endTotalMinutes = endHour * 60 + endMinute;
+                
+                let durationMinutes = endTotalMinutes - startTotalMinutes;
+                
+                if (durationMinutes < 0) {
+                    durationMinutes = 0;
+                }
+                
+                const hours = Math.floor(durationMinutes / 60);
+                const minutes = durationMinutes % 60;
+                
+                document.getElementById('durationDisplay').textContent = 
+                    `Длительность: ${hours} час${hours !== 1 ? 'а' : ''} ${minutes} минут${minutes !== 1 ? 'ы' : ''}`;
+            };
+            
+            // Слушатели для обновления длительности
+            ['meetingStartHour', 'meetingStartMinute', 'meetingEndHour', 'meetingEndMinute'].forEach(id => {
+                document.getElementById(id).addEventListener('change', updateDuration);
+            });
+            
+            // Инициализация
+            updateDuration();
+        }
+
+        // Инициализация слушателей событий
+        function initEventListeners() {
+            // Кнопки управления
+            document.getElementById('saveBtn').addEventListener('click', saveDayData);
+            document.getElementById('docxBtn').addEventListener('click', exportToDOCX);
+            document.getElementById('clearBtn').addEventListener('click', clearDayData);
+            document.getElementById('archiveBtn').addEventListener('click', showArchive);
+            
+            // Встречи
+            document.getElementById('addMeetingBtn').addEventListener('click', () => {
+                document.getElementById('meetingModal').classList.remove('hidden');
+            });
+            
+            document.getElementById('cancelMeetingBtn').addEventListener('click', () => {
+                document.getElementById('meetingModal').classList.add('hidden');
+                resetMeetingForm();
+            });
+            
+            document.getElementById('saveMeetingBtn').addEventListener('click', saveMeeting);
+            
+            // Задачи
+            document.getElementById('addTaskBtn').addEventListener('click', addNewTask);
+            document.getElementById('newTaskInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    addNewTask();
+                }
+            });
+            
+            // Стратегические задачи - чекбоксы выполнения
+            document.getElementById('mainTaskCompleted').addEventListener('change', function() {
+                strategyTasks.mainTask.completed = this.checked;
+                saveDayData();
+                calculateProgress();
+                updatePrintContent();
+            });
+            
+            document.getElementById('frogTaskCompleted').addEventListener('change', function() {
+                strategyTasks.frogTask.completed = this.checked;
+                saveDayData();
+                calculateProgress();
+                updatePrintContent();
+            });
+            
+            document.getElementById('elephantTaskCompleted').addEventListener('change', function() {
+                strategyTasks.elephantTask.completed = this.checked;
+                saveDayData();
+                calculateProgress();
+                updatePrintContent();
+            });
+            
+            // Автосохранение при изменении данных
+            ['mainTask', 'frogTask', 'elephantTask', 'notes'].forEach(id => {
+                document.getElementById(id).addEventListener('input', saveDayData);
+            });
+            
+            // Архив
+            document.getElementById('closeArchiveBtn').addEventListener('click', () => {
+                document.getElementById('archiveModal').classList.add('hidden');
+            });
+            
+            document.getElementById('archiveSearch').addEventListener('input', filterArchive);
+        }
+
+        // Загрузка данных дня из LocalStorage
+        function loadDayData() {
+            const dateKey = getDateKey(currentDate);
+            const savedData = localStorage.getItem(dateKey);
+            
+            if (savedData) {
+                try {
+                    const data = JSON.parse(savedData);
+                    
+                    // Загрузка стратегии дня
+                    document.getElementById('mainTask').value = data.mainTask || '';
+                    document.getElementById('frogTask').value = data.frogTask || '';
+                    document.getElementById('elephantTask').value = data.elephantTask || '';
+                    
+                    // Загрузка состояния выполнения стратегических задач
+                    if (data.strategyTasks) {
+                        strategyTasks = data.strategyTasks;
+                        document.getElementById('mainTaskCompleted').checked = strategyTasks.mainTask.completed || false;
+                        document.getElementById('frogTaskCompleted').checked = strategyTasks.frogTask.completed || false;
+                        document.getElementById('elephantTaskCompleted').checked = strategyTasks.elephantTask.completed || false;
+                    }
+                    
+                    // Загрузка встреч
+                    meetings = data.meetings || [];
+                    renderMeetings();
+                    
+                    // Загрузка задач
+                    tasks = data.tasks || [];
+                    renderTasks();
+                    
+                    // Загрузка заметок
+                    document.getElementById('notes').value = data.notes || '';
+                    
+                    // Обновление контента для печати
+                    updatePrintContent();
+                    
+                    // Расчет прогресса
+                    calculateProgress();
+                } catch (e) {
+                    console.error('Ошибка при загрузке данных:', e);
+                    resetDayData();
+                }
+            } else {
+                resetDayData();
+            }
+        }
+
+        // Сохранение данных дня в LocalStorage
+        function saveDayData() {
+            const dateKey = getDateKey(currentDate);
+            
+            const dayData = {
+                mainTask: document.getElementById('mainTask').value,
+                frogTask: document.getElementById('frogTask').value,
+                elephantTask: document.getElementById('elephantTask').value,
+                strategyTasks: strategyTasks,
+                meetings: meetings,
+                tasks: tasks,
+                notes: document.getElementById('notes').value,
+                savedAt: new Date().toISOString()
+            };
+            
+            localStorage.setItem(dateKey, JSON.stringify(dayData));
+            showNotification('Данные сохранены', 'green');
+        }
+
+        // Сброс данных дня
+        function resetDayData() {
+            meetings = [];
+            tasks = [];
+            strategyTasks = {
+                mainTask: { completed: false },
+                frogTask: { completed: false },
+                elephantTask: { completed: false }
+            };
+            
+            document.getElementById('mainTaskCompleted').checked = false;
+            document.getElementById('frogTaskCompleted').checked = false;
+            document.getElementById('elephantTaskCompleted').checked = false;
+            
+            renderMeetings();
+            renderTasks();
+            updatePrintContent();
+            calculateProgress();
+        }
+
+        // Очистка данных дня
+        function clearDayData() {
+            if (confirm('Вы уверены, что хотите очистить данные за текущий день?')) {
+                resetDayData();
+                document.getElementById('mainTask').value = '';
+                document.getElementById('frogTask').value = '';
+                document.getElementById('elephantTask').value = '';
+                document.getElementById('notes').value = '';
+                saveDayData();
+                showNotification('Данные очищены', 'yellow');
+            }
+        }
+
+        // Получение ключа для LocalStorage
+        function getDateKey(date) {
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `day_${year}_${month}_${day}`;
+        }
+
+        // Отображение встреч
+        function renderMeetings() {
+            const container = document.getElementById('meetingsContainer');
+            container.innerHTML = '';
+            
+            // Очистка старых встреч
+            meetings.forEach((meeting, index) => {
+                addMeetingToTimeline(meeting, index);
+            });
+        }
+
+        // Добавление встречи на таймлайн
+        function addMeetingToTimeline(meeting, index) {
+            const container = document.getElementById('meetingsContainer');
+            
+            const startHour = meeting.startHour;
+            const startMinute = meeting.startMinute;
+            const endHour = meeting.endHour;
+            const endMinute = meeting.endMinute;
+            
+            const startTotalMinutes = startHour * 60 + startMinute;
+            const endTotalMinutes = endHour * 60 + endMinute;
+            const durationMinutes = endTotalMinutes - startTotalMinutes;
+            
+            if (durationMinutes <= 0) return;
+            
+            // Определяем цвет встречи
+            const colors = [
+                'bg-blue-100 border-blue-300 text-blue-800',
+                'bg-green-100 border-green-300 text-green-800',
+                'bg-purple-100 border-purple-300 text-purple-800',
+                'bg-yellow-100 border-yellow-300 text-yellow-800',
+                'bg-pink-100 border-pink-300 text-pink-800'
+            ];
+            const colorClass = colors[index % colors.length];
+            const completedClass = meeting.completed ? 'meeting-completed' : '';
+            
+            // Создаем элемент встречи
+            const meetingElement = document.createElement('div');
+            meetingElement.className = `meeting-block p-2 rounded border ${colorClass} ${completedClass}`;
+            meetingElement.dataset.id = meeting.id;
+            meetingElement.title = `${meeting.title} (${formatTime(startHour, startMinute)} - ${formatTime(endHour, endMinute)}) - ${meeting.completed ? 'Выполнено' : 'Не выполнено'}`;
+            
+            // Обработчик клика для отметки выполнения
+            meetingElement.addEventListener('click', function(e) {
+                if (!e.target.closest('.meeting-delete-btn')) {
+                    toggleMeetingCompletion(meeting.id);
+                }
+            });
+            
+            // Позиционируем встречу (60px на каждый час, 1px на каждую минуту)
+            const startPosition = (startHour - 7) * 60 + startMinute;
+            const height = durationMinutes;
+            
+            meetingElement.style.top = `${startPosition}px`;
+            meetingElement.style.height = `${height}px`;
+            
+            // Заголовок встречи
+            const title = document.createElement('div');
+            title.className = 'font-medium truncate text-xs';
+            title.textContent = meeting.title;
+            
+            // Время встречи
+            const time = document.createElement('div');
+            time.className = 'text-xs opacity-75';
+            time.textContent = `${formatTime(startHour, startMinute)}-${formatTime(endHour, endMinute)}`;
+            
+            // Статус выполнения
+            const status = document.createElement('div');
+            status.className = 'text-xs mt-1';
+            status.innerHTML = meeting.completed ? 
+                '<span class="text-green-600">✓ Выполнено</span>' : 
+                '<span class="text-gray-500">○ Не выполнено</span>';
+            
+            // Кнопка удаления
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'meeting-delete-btn absolute top-1 right-1 text-gray-500 hover:text-red-600 no-print';
+            deleteBtn.innerHTML = `
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            `;
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteMeeting(meeting.id);
+            });
+            
+            meetingElement.appendChild(title);
+            meetingElement.appendChild(time);
+            meetingElement.appendChild(status);
+            meetingElement.appendChild(deleteBtn);
+            container.appendChild(meetingElement);
+        }
+
+        // Форматирование времени
+        function formatTime(hour, minute) {
+            return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        }
+
+        // Сброс формы встречи
+        function resetMeetingForm() {
+            document.getElementById('meetingTitle').value = '';
+            document.getElementById('meetingStartHour').value = 9;
+            document.getElementById('meetingStartMinute').value = 0;
+            document.getElementById('meetingEndHour').value = 10;
+            document.getElementById('meetingEndMinute').value = 0;
+            initDurationCalculator();
+        }
+
+        // Сохранение встречи
+        function saveMeeting() {
+            const title = document.getElementById('meetingTitle').value.trim();
+            const startHour = parseInt(document.getElementById('meetingStartHour').value);
+            const startMinute = parseInt(document.getElementById('meetingStartMinute').value);
+            const endHour = parseInt(document.getElementById('meetingEndHour').value);
+            const endMinute = parseInt(document.getElementById('meetingEndMinute').value);
+            
+            if (!title) {
+                alert('Введите название встречи');
+                return;
+            }
+            
+            const startTotalMinutes = startHour * 60 + startMinute;
+            const endTotalMinutes = endHour * 60 + endMinute;
+            
+            if (startTotalMinutes >= endTotalMinutes) {
+                alert('Время окончания должно быть позже времени начала');
+                return;
+            }
+            
+            // Проверка на пересечение с другими встречами
+            const hasConflict = meetings.some(meeting => {
+                const meetingStart = meeting.startHour * 60 + meeting.startMinute;
+                const meetingEnd = meeting.endHour * 60 + meeting.endMinute;
+                
+                return (startTotalMinutes < meetingEnd && endTotalMinutes > meetingStart);
+            });
+            
+            if (hasConflict) {
+                alert('Время встречи пересекается с уже запланированной встречей');
+                return;
+            }
+            
+            // Создание объекта встречи
+            const meeting = {
+                id: Date.now(),
+                title: title,
+                startHour: startHour,
+                startMinute: startMinute,
+                endHour: endHour,
+                endMinute: endMinute,
+                completed: false
+            };
+            
+            // Добавление встречи в массив
+            meetings.push(meeting);
+            
+            // Обновление отображения
+            addMeetingToTimeline(meeting, meetings.length - 1);
+            
+            // Закрытие модального окна и сброс формы
+            document.getElementById('meetingModal').classList.add('hidden');
+            resetMeetingForm();
+            
+            // Сохранение данных
+            saveDayData();
+            updatePrintContent();
+            calculateProgress();
+            
+            showNotification('Встреча добавлена', 'green');
+        }
+
+        // Переключение статуса выполнения встречи
+        function toggleMeetingCompletion(id) {
+            const meeting = meetings.find(m => m.id === id);
+            if (meeting) {
+                meeting.completed = !meeting.completed;
+                renderMeetings();
+                saveDayData();
+                updatePrintContent();
+                calculateProgress();
+                showNotification(`Встреча ${meeting.completed ? 'отмечена как выполненная' : 'снята с выполнения'}`, 'green');
+            }
+        }
+
+        // Удаление встречи
+        function deleteMeeting(id) {
+            if (confirm('Удалить эту встречу?')) {
+                meetings = meetings.filter(meeting => meeting.id !== id);
+                renderMeetings();
+                saveDayData();
+                updatePrintContent();
+                calculateProgress();
+                showNotification('Встреча удалена', 'red');
+            }
+        }
+
+        // Отображение задач
+        function renderTasks() {
+            const container = document.getElementById('tasksContainer');
+            container.innerHTML = '';
+            
+            if (tasks.length === 0) {
+                const emptyState = document.createElement('div');
+                emptyState.className = 'text-center py-4 text-gray-500';
+                emptyState.textContent = 'Нет задач. Добавьте первую задачу!';
+                container.appendChild(emptyState);
+                return;
+            }
+            
+            tasks.forEach((task, index) => {
+                const taskElement = document.createElement('div');
+                taskElement.className = `flex items-start p-2 bg-gray-50 rounded border border-gray-200 draggable ${task.completed ? 'opacity-75' : ''}`;
+                taskElement.dataset.index = index;
+                taskElement.draggable = true;
+                
+                // Чекбокс
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'mr-2 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 mt-1 flex-shrink-0';
+                checkbox.checked = task.completed;
+                checkbox.addEventListener('change', () => {
+                    task.completed = checkbox.checked;
+                    taskText.classList.toggle('completed-task', task.completed);
+                    saveDayData();
+                    updatePrintContent();
+                    calculateProgress();
+                });
+                
+                // Текст задачи
+                const taskText = document.createElement('span');
+                taskText.className = `flex-grow text-sm ${task.completed ? 'completed-task' : ''} break-words whitespace-normal`;
+                taskText.textContent = task.text;
+                taskText.addEventListener('dblclick', () => {
+                    const newText = prompt('Редактировать задачу:', task.text);
+                    if (newText !== null && newText.trim() !== '') {
+                        task.text = newText.trim();
+                        taskText.textContent = task.text;
+                        saveDayData();
+                        updatePrintContent();
+                    }
+                });
+                
+                // Кнопка удаления
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'ml-1 text-gray-400 hover:text-red-600 no-print flex-shrink-0';
+                deleteBtn.innerHTML = `
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                `;
+                deleteBtn.addEventListener('click', () => {
+                    deleteTask(index);
+                });
+                
+                taskElement.appendChild(checkbox);
+                taskElement.appendChild(taskText);
+                taskElement.appendChild(deleteBtn);
+                
+                // Добавление обработчиков для Drag-and-drop
+                taskElement.addEventListener('dragstart', handleDragStart);
+                taskElement.addEventListener('dragover', handleDragOver);
+                taskElement.addEventListener('drop', handleDrop);
+                taskElement.addEventListener('dragend', handleDragEnd);
+                
+                container.appendChild(taskElement);
+            });
+        }
+
+        // Добавление новой задачи
+        function addNewTask() {
+            const input = document.getElementById('newTaskInput');
+            const text = input.value.trim();
+            
+            if (!text) {
+                alert('Введите текст задачи');
+                return;
+            }
+            
+            tasks.push({
+                text: text,
+                completed: false,
+                createdAt: new Date().toISOString()
+            });
+            
+            input.value = '';
+            renderTasks();
+            saveDayData();
+            updatePrintContent();
+            calculateProgress();
+            showNotification('Задача добавлена', 'green');
+        }
+
+        // Удаление задачи
+        function deleteTask(index) {
+            if (confirm('Удалить эту задачу?')) {
+                tasks.splice(index, 1);
+                renderTasks();
+                saveDayData();
+                updatePrintContent();
+                calculateProgress();
+                showNotification('Задача удалена', 'red');
+            }
+        }
+
+        // Drag-and-drop функциональность для задач
+        function handleDragStart(e) {
+            draggingTask = this;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            if (draggingTask !== this) {
+                const fromIndex = parseInt(draggingTask.dataset.index);
+                const toIndex = parseInt(this.dataset.index);
+                
+                // Перемещение задачи в массиве
+                const [movedTask] = tasks.splice(fromIndex, 1);
+                tasks.splice(toIndex, 0, movedTask);
+                
+                // Обновление отображения и сохранение
+                renderTasks();
+                saveDayData();
+                updatePrintContent();
+            }
+        }
+
+        function handleDragEnd() {
+            this.classList.remove('dragging');
+            draggingTask = null;
+        }
+
+        // Расчет прогресса выполнения
+        function calculateProgress() {
+            // Подсчет всех задач
+            const totalTasks = 
+                (document.getElementById('mainTask').value ? 1 : 0) +
+                (document.getElementById('frogTask').value ? 1 : 0) +
+                (document.getElementById('elephantTask').value ? 1 : 0) +
+                meetings.length +
+                tasks.length;
+            
+            // Подсчет выполненных задач
+            let completedTasks = 0;
+            
+            // Стратегические задачи
+            if (document.getElementById('mainTask').value && strategyTasks.mainTask.completed) completedTasks++;
+            if (document.getElementById('frogTask').value && strategyTasks.frogTask.completed) completedTasks++;
+            if (document.getElementById('elephantTask').value && strategyTasks.elephantTask.completed) completedTasks++;
+            
+            // Жесткие встречи
+            completedTasks += meetings.filter(m => m.completed).length;
+            
+            // Гибкие задачи
+            completedTasks += tasks.filter(t => t.completed).length;
+            
+            // Расчет процента
+            const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+            
+            // Обновление отображения
+            document.getElementById('progressPercent').textContent = `${percent}%`;
+            document.getElementById('progressFill').style.width = `${percent}%`;
+            document.getElementById('progressText').textContent = `Выполнено ${completedTasks} из ${totalTasks} задач`;
+            
+            return { totalTasks, completedTasks, percent };
+        }
+
+        // Обновление контента для печати
+        function updatePrintContent() {
+            // Обновляем дату
+            document.getElementById('printDate').textContent = document.getElementById('currentDate').textContent;
+            
+            // Обновляем стратегические задачи
+            document.getElementById('printMainTask').textContent = document.getElementById('mainTask').value || '';
+            document.getElementById('printFrogTask').textContent = document.getElementById('frogTask').value || '';
+            document.getElementById('printElephantTask').textContent = document.getElementById('elephantTask').value || '';
+            
+            // Обновляем статусы стратегических задач
+            document.getElementById('printMainTaskStatus').textContent = strategyTasks.mainTask.completed ? '[✓]' : '[ ]';
+            document.getElementById('printFrogTaskStatus').textContent = strategyTasks.frogTask.completed ? '[✓]' : '[ ]';
+            document.getElementById('printElephantTaskStatus').textContent = strategyTasks.elephantTask.completed ? '[✓]' : '[ ]';
+            
+            // Обновляем список встреч для печати
+            const meetingsList = document.getElementById('printMeetingsList');
+            meetingsList.innerHTML = '';
+            
+            if (meetings.length === 0) {
+                meetingsList.innerHTML = '<div class="meeting-item">Нет запланированных встреч</div>';
+            } else {
+                meetings.sort((a, b) => {
+                    const aTime = a.startHour * 60 + a.startMinute;
+                    const bTime = b.startHour * 60 + b.startMinute;
+                    return aTime - bTime;
+                });
+                
+                meetings.forEach(meeting => {
+                    const meetingItem = document.createElement('div');
+                    meetingItem.className = 'meeting-item';
+                    meetingItem.innerHTML = `
+                        <span class="meeting-time">${formatTime(meeting.startHour, meeting.startMinute)}-${formatTime(meeting.endHour, meeting.endMinute)}</span>
+                        <span>${meeting.title} ${meeting.completed ? '✓' : '○'}</span>
+                    `;
+                    meetingsList.appendChild(meetingItem);
+                });
+            }
+            
+            // Обновляем список задач для печати
+            const tasksList = document.getElementById('printTasksList');
+            tasksList.innerHTML = '';
+            
+            if (tasks.length === 0) {
+                tasksList.innerHTML = '<div class="task-item">Нет задач</div>';
+            } else {
+                tasks.forEach(task => {
+                    const taskItem = document.createElement('div');
+                    taskItem.className = 'task-item';
+                    taskItem.innerHTML = `<span>${task.completed ? '✓' : '○'} ${task.text}</span>`;
+                    tasksList.appendChild(taskItem);
+                });
+            }
+            
+            // Обновляем заметки
+            document.getElementById('printNotes').textContent = document.getElementById('notes').value || '';
+            
+            // Обновляем прогресс
+            const progress = calculateProgress();
+            document.getElementById('printProgressText').textContent = 
+                `Выполнено ${progress.completedTasks} из ${progress.totalTasks} задач (${progress.percent}%)`;
+        }
+
+        // Экспорт в DOCX (улучшенная версия)
+        function exportToDOCX() {
+            updatePrintContent();
+            
+            // Форматируем время для отображения
+            const formatMeetingTime = (meeting) => {
+                return `${formatTime(meeting.startHour, meeting.startMinute)}-${formatTime(meeting.endHour, meeting.endMinute)}`;
+            };
+            
+            // Создаем HTML для экспорта с точной копией структуры веб-версии
+            const exportHtml = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>План дня ${getDateKey(currentDate)}</title>
+                    <style>
+                        /* Стили, похожие на веб-версию */
+                        * {
+                            font-family: 'Inter', Arial, sans-serif;
+                            box-sizing: border-box;
+                        }
+                        
+                        body {
+                            margin: 0;
+                            padding: 20px;
+                            background-color: #f9fafb;
+                            color: #374151;
+                        }
+                        
+                        .container {
+                            max-width: 1200px;
+                            margin: 0 auto;
+                        }
+                        
+                        .header {
+                            background-color: white;
+                            border-radius: 12px;
+                            padding: 24px;
+                            margin-bottom: 24px;
+                            border: 1px solid #e5e7eb;
+                            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                        }
+                        
+                        .title {
+                            font-size: 28px;
+                            font-weight: bold;
+                            color: #111827;
+                            margin-bottom: 8px;
+                            text-align: center;
+                        }
+                        
+                        .date {
+                            font-size: 18px;
+                            color: #059669;
+                            font-weight: 600;
+                            text-align: center;
+                            margin-bottom: 24px;
+                        }
+                        
+                        .section-title {
+                            font-size: 20px;
+                            font-weight: bold;
+                            color: #374151;
+                            margin-bottom: 16px;
+                        }
+                        
+                        .strategy-grid {
+                            display: grid;
+                            grid-template-columns: repeat(3, 1fr);
+                            gap: 16px;
+                            margin-bottom: 24px;
+                        }
+                        
+                        .strategy-block {
+                            background-color: white;
+                            border-radius: 8px;
+                            padding: 20px;
+                            border: 1px solid #e5e7eb;
+                            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+                        }
+                        
+                        .strategy-header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            margin-bottom: 12px;
+                            border-bottom: 2px solid #d1fae5;
+                            padding-bottom: 8px;
+                        }
+                        
+                        .strategy-name {
+                            font-size: 18px;
+                            font-weight: 600;
+                            color: #111827;
+                        }
+                        
+                        .strategy-status {
+                            font-size: 14px;
+                            font-weight: 500;
+                            color: ${strategyTasks.mainTask.completed ? '#10b981' : '#6b7280'};
+                        }
+                        
+                        .strategy-content {
+                            font-size: 14px;
+                            line-height: 1.5;
+                            color: #4b5563;
+                            min-height: 60px;
+                            white-space: pre-wrap;
+                        }
+                        
+                        .timeline-grid {
+                            display: grid;
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 16px;
+                            margin-bottom: 24px;
+                        }
+                        
+                        .timeline-col {
+                            background-color: white;
+                            border-radius: 8px;
+                            padding: 20px;
+                            border: 1px solid #e5e7eb;
+                            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+                        }
+                        
+                        .col-title {
+                            font-size: 18px;
+                            font-weight: 600;
+                            color: #111827;
+                            margin-bottom: 16px;
+                            padding-bottom: 8px;
+                            border-bottom: 2px solid #d1fae5;
+                        }
+                        
+                        .meeting-item, .task-item {
+                            padding: 8px 0;
+                            border-bottom: 1px dashed #e5e7eb;
+                            font-size: 14px;
+                        }
+                        
+                        .meeting-time {
+                            font-weight: 600;
+                            color: #111827;
+                            margin-right: 8px;
+                        }
+                        
+                        .status-icon {
+                            display: inline-block;
+                            width: 16px;
+                            text-align: center;
+                            margin-right: 4px;
+                        }
+                        
+                        .completed {
+                            color: #10b981;
+                        }
+                        
+                        .not-completed {
+                            color: #9ca3af;
+                        }
+                        
+                        .notes-block {
+                            background-color: white;
+                            border-radius: 8px;
+                            padding: 20px;
+                            border: 1px solid #e5e7eb;
+                            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+                            margin-bottom: 24px;
+                        }
+                        
+                        .notes-title {
+                            font-size: 18px;
+                            font-weight: 600;
+                            color: #111827;
+                            margin-bottom: 12px;
+                        }
+                        
+                        .notes-content {
+                            font-size: 14px;
+                            line-height: 1.5;
+                            color: #4b5563;
+                            white-space: pre-wrap;
+                            min-height: 80px;
+                        }
+                        
+                        .progress-block {
+                            background-color: white;
+                            border-radius: 8px;
+                            padding: 16px;
+                            border: 1px solid #e5e7eb;
+                            text-align: center;
+                            font-size: 14px;
+                            color: #6b7280;
+                        }
+                        
+                        .progress-percent {
+                            font-weight: 700;
+                            color: #059669;
+                            font-size: 16px;
+                        }
+                        
+                        /* Цвета для блоков встреч (как в веб-версии) */
+                        .meeting-color-0 { color: #1e40af; }
+                        .meeting-color-1 { color: #065f46; }
+                        .meeting-color-2 { color: #5b21b6; }
+                        .meeting-color-3 { color: #92400e; }
+                        .meeting-color-4 { color: #831843; }
+                        
+                        .task-text {
+                            margin-left: 4px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <div class="title">Планирование дня | Метод Глеба Архангельского</div>
+                            <div class="date">${document.getElementById('currentDate').textContent}</div>
+                        </div>
+                        
+                        <div class="section-title">СТРАТЕГИЯ ДНЯ</div>
+                        <div class="strategy-grid">
+                            <!-- Дело дня -->
+                            <div class="strategy-block">
+                                <div class="strategy-header">
+                                    <div class="strategy-name">🎯 ДЕЛО ДНЯ</div>
+                                    <div class="strategy-status">${strategyTasks.mainTask.completed ? '✓ Выполнено' : '○ Не выполнено'}</div>
+                                </div>
+                                <div class="strategy-content">${document.getElementById('mainTask').value || ''}</div>
+                            </div>
+                            
+                            <!-- Лягушка -->
+                            <div class="strategy-block">
+                                <div class="strategy-header">
+                                    <div class="strategy-name">🐸 ЛЯГУШКА</div>
+                                    <div class="strategy-status">${strategyTasks.frogTask.completed ? '✓ Выполнено' : '○ Не выполнено'}</div>
+                                </div>
+                                <div class="strategy-content">${document.getElementById('frogTask').value || ''}</div>
+                            </div>
+                            
+                            <!-- Слон -->
+                            <div class="strategy-block">
+                                <div class="strategy-header">
+                                    <div class="strategy-name">🐘 СЛОН</div>
+                                    <div class="strategy-status">${strategyTasks.elephantTask.completed ? '✓ Выполнено' : '○ Не выполнено'}</div>
+                                </div>
+                                <div class="strategy-content">${document.getElementById('elephantTask').value || ''}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="section-title">ТАЙМЛАЙН ДНЯ</div>
+                        <div class="timeline-grid">
+                            <!-- Жесткие встречи -->
+                            <div class="timeline-col">
+                                <div class="col-title">ЖЕСТКИЕ ВСТРЕЧИ (07:00-21:00)</div>
+                                ${meetings.length > 0 ? 
+                                    meetings.sort((a, b) => {
+                                        const aTime = a.startHour * 60 + a.startMinute;
+                                        const bTime = b.startHour * 60 + b.startMinute;
+                                        return aTime - bTime;
+                                    }).map((meeting, index) => `
+                                        <div class="meeting-item">
+                                            <span class="meeting-time meeting-color-${index % 5}">${formatMeetingTime(meeting)}</span>
+                                            <span class="status-icon ${meeting.completed ? 'completed' : 'not-completed'}">${meeting.completed ? '✓' : '○'}</span>
+                                            <span>${meeting.title}</span>
+                                        </div>
+                                    `).join('') : 
+                                    '<div class="meeting-item">Нет запланированных встреч</div>'
+                                }
+                            </div>
+                            
+                            <!-- Гибкие задачи -->
+                            <div class="timeline-col">
+                                <div class="col-title">ГИБКИЕ ЗАДАЧИ</div>
+                                ${tasks.length > 0 ? 
+                                    tasks.map((task, index) => `
+                                        <div class="task-item">
+                                            <span class="status-icon ${task.completed ? 'completed' : 'not-completed'}">${task.completed ? '✓' : '○'}</span>
+                                            <span class="task-text">${task.text}</span>
+                                        </div>
+                                    `).join('') : 
+                                    '<div class="task-item">Нет задач</div>'
+                                }
+                            </div>
+                        </div>
+                        
+                        <div class="notes-block">
+                            <div class="notes-title">ЗАМЕТКИ / ИТОГИ ДНЯ</div>
+                            <div class="notes-content">${document.getElementById('notes').value || ''}</div>
+                        </div>
+                        
+                        <div class="progress-block">
+                            <span>Прогресс выполнения: </span>
+                            <span class="progress-percent">${document.getElementById('progressPercent').textContent}</span>
+                            <span> (${document.getElementById('progressText').textContent})</span>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `;
+            
+            // Создаем Blob и скачиваем
+            const blob = new Blob([exportHtml], { type: 'application/msword' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `План_дня_${getDateKey(currentDate)}.doc`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification('Документ сохранен в формате Word', 'blue');
+        }
+
+        // Показать архив
+        function showArchive() {
+            document.getElementById('archiveModal').classList.remove('hidden');
+            loadArchive();
+        }
+
+        // Загрузка архива
+        function loadArchive() {
+            const archiveList = document.getElementById('archiveList');
+            archiveList.innerHTML = '';
+            
+            // Получение всех ключей из LocalStorage
+            const archiveItems = [];
+            
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                
+                if (key.startsWith('day_')) {
+                    try {
+                        const data = JSON.parse(localStorage.getItem(key));
+                        archiveItems.push({
+                            key: key,
+                            date: key.replace('day_', '').replace(/_/g, '.'),
+                            savedAt: new Date(data.savedAt),
+                            mainTask: data.mainTask
+                        });
+                    } catch (e) {
+                        console.error('Ошибка при загрузке архива:', e);
+                    }
+                }
+            }
+            
+            // Сортировка по дате (новые сверху)
+            archiveItems.sort((a, b) => b.savedAt - a.savedAt);
+            
+            // Отображение списка
+            if (archiveItems.length === 0) {
+                archiveList.innerHTML = '<div class="text-center py-8 text-gray-500">Архив пуст</div>';
+                return;
+            }
+            
+            archiveItems.forEach(item => {
+                const archiveItem = document.createElement('div');
+                archiveItem.className = 'flex items-center justify-between p-3 border-b border-gray-200 hover:bg-gray-50';
+                
+                const itemContent = document.createElement('div');
+                itemContent.className = 'flex-grow';
+                
+                const dateElement = document.createElement('div');
+                dateElement.className = 'font-medium text-gray-800';
+                dateElement.textContent = item.date;
+                
+                const taskElement = document.createElement('div');
+                taskElement.className = 'text-sm text-gray-600 truncate max-w-md';
+                taskElement.textContent = item.mainTask || 'Нет главной задачи';
+                
+                const actionsElement = document.createElement('div');
+                actionsElement.className = 'flex space-x-2';
+                
+                const loadButton = document.createElement('button');
+                loadButton.className = 'px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded hover:bg-green-200';
+                loadButton.textContent = 'Загрузить';
+                loadButton.addEventListener('click', () => {
+                    loadArchiveDay(item.key);
+                });
+                
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded hover:bg-red-200';
+                deleteButton.textContent = 'Удалить';
+                deleteButton.addEventListener('click', () => {
+                    deleteArchiveDay(item.key);
+                });
+                
+                itemContent.appendChild(dateElement);
+                itemContent.appendChild(taskElement);
+                actionsElement.appendChild(loadButton);
+                actionsElement.appendChild(deleteButton);
+                
+                archiveItem.appendChild(itemContent);
+                archiveItem.appendChild(actionsElement);
+                archiveList.appendChild(archiveItem);
+            });
+        }
+
+        // Фильтрация архива
+        function filterArchive() {
+            const searchTerm = document.getElementById('archiveSearch').value.toLowerCase();
+            const items = document.querySelectorAll('#archiveList > div');
+            
+            items.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                item.style.display = text.includes(searchTerm) ? '' : 'none';
+            });
+        }
+
+        // Загрузка дня из архива
+        function loadArchiveDay(key) {
+            if (confirm('Загрузить этот день? Текущие данные будут потеряны.')) {
+                const dateParts = key.replace('day_', '').split('_');
+                const year = parseInt(dateParts[0]);
+                const month = parseInt(dateParts[1]) - 1;
+                const day = parseInt(dateParts[2]);
+                
+                currentDate = new Date(year, month, day);
+                document.getElementById('datePicker').valueAsDate = currentDate;
+                
+                // Обновление отображения даты
+                const weekdays = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+                const weekday = weekdays[currentDate.getDay()];
+                const formattedDate = `${weekday}, ${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.${year}`;
+                
+                document.getElementById('currentDate').textContent = formattedDate;
+                
+                // Загрузка данных
+                loadDayData();
+                
+                // Закрытие архива
+                document.getElementById('archiveModal').classList.add('hidden');
+                
+                showNotification('День загружен из архива', 'green');
+            }
+        }
+
+        // Удаление дня из архива
+        function deleteArchiveDay(key) {
+            if (confirm('Удалить этот день из архива?')) {
+                localStorage.removeItem(key);
+                loadArchive();
+                showNotification('День удален из архива', 'red');
+            }
+        }
+
+        // Показать уведомление
+        function showNotification(message, color) {
+            // Создание элемента уведомления
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg text-white font-medium z-50 no-print`;
+            
+            switch(color) {
+                case 'green':
+                    notification.classList.add('bg-green-600');
+                    break;
+                case 'red':
+                    notification.classList.add('bg-red-600');
+                    break;
+                case 'blue':
+                    notification.classList.add('bg-blue-600');
+                    break;
+                case 'yellow':
+                    notification.classList.add('bg-yellow-600');
+                    break;
+                default:
+                    notification.classList.add('bg-gray-800');
+            }
+            
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            // Автоматическое удаление уведомления
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
